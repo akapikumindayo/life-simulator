@@ -1,0 +1,2028 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3Dミニチュア人工生命シミュレーター</title>
+    <!-- Tailwind CSS (UI装飾用) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js (3D描画用) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls (カメラ操作用) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #e5e5e0;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        /* スライダーやパネルのスクロールバー対策 */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 操作盤が閉じている時に浮かび上がる表示用ボタン -->
+    <button id="btn-show-panel" class="hidden absolute top-4 left-4 bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-stone-200 text-lg hover:bg-stone-100 active:scale-95 transition-all z-20 pointer-events-auto">
+        ⚙️ 操作盤を開く
+    </button>
+
+    <!-- UI操作盤（コントロールパネル） -->
+    <div id="control-panel" class="absolute top-4 left-4 bg-white/95 backdrop-blur-md p-5 rounded-2xl shadow-xl border border-stone-200 w-[350px] max-h-[92vh] flex flex-col pointer-events-auto z-10 transition-all duration-300">
+        <div class="flex-shrink-0 flex justify-between items-start mb-1">
+            <div>
+                <h1 class="text-xl font-bold text-stone-800 flex items-center gap-2">
+                    🌱 Miniature Life 3D
+                </h1>
+                <p class="text-xs text-stone-500">広大フィールド・サバイバル進化実験室</p>
+            </div>
+            <!-- 操作盤を折りたたむ非表示ボタン -->
+            <button id="btn-hide-panel" class="text-xs bg-stone-100 hover:bg-stone-200 text-stone-500 font-semibold px-2 py-1 rounded-lg transition-colors active:scale-95">
+                ◀ 閉じる
+            </button>
+        </div>
+        
+        <!-- 設定・コントロールエリア（スクロール可能） -->
+        <div class="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-4 text-sm text-stone-700">
+            <!-- 総合統計表示 -->
+            <div class="bg-stone-50 p-3 rounded-xl border border-stone-100 space-y-1.5 text-xs">
+                <div class="flex justify-between">
+                    <span>生存個体数:</span>
+                    <span id="agent-count" class="font-bold text-indigo-600">0</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>最大世代数:</span>
+                    <span id="max-generation" class="font-bold text-amber-600">1</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>平均関節数:</span>
+                    <span id="avg-joints" class="font-bold text-teal-600">0.0</span>
+                </div>
+                <div class="flex justify-between text-rose-600 font-semibold">
+                    <span>平均災害耐性:</span>
+                    <span id="avg-resistance">0%</span>
+                </div>
+                <div class="flex justify-between text-emerald-600 font-semibold">
+                    <span>平均最大冒険距離:</span>
+                    <span id="avg-distance">0.0m</span>
+                </div>
+                <div class="flex justify-between border-t border-stone-200 pt-1.5 mt-1">
+                    <span>配置フード数 / 災害数:</span>
+                    <span class="font-bold"><span id="food-count" class="text-rose-500">0</span> / <span id="disaster-count" class="text-orange-600">0</span></span>
+                </div>
+            </div>
+
+            <!-- 生命体・進化のチューニングコントローラー -->
+            <div class="space-y-3">
+                <h2 class="font-bold text-xs text-stone-400 uppercase tracking-wider">🧬 進化・変異の設定</h2>
+                
+                <!-- 変異率スライダー -->
+                <div class="space-y-1">
+                    <div class="flex justify-between text-xs">
+                        <span>突然変異率 (分裂時):</span>
+                        <span id="label-mutation" class="font-bold text-indigo-600">30%</span>
+                    </div>
+                    <input id="slide-mutation" type="range" min="0" max="100" value="30" class="w-full accent-indigo-600 h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- スポーン時の初期関節数 -->
+                <div class="space-y-1">
+                    <div class="flex justify-between text-xs">
+                        <span>第1世代の関節数 (新規スポーン):</span>
+                        <span id="label-joints" class="font-bold text-indigo-600">3個 (2本足)</span>
+                    </div>
+                    <input id="slide-joints" type="range" min="3" max="8" value="3" class="w-full accent-indigo-600 h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- シミュレーション速度（倍速モード）切り替えUI -->
+                <div class="space-y-1.5 pt-1">
+                    <div class="flex justify-between text-xs">
+                        <span>⚡ シミュレーション速度:</span>
+                        <span id="label-speed" class="font-bold text-amber-600">1x (通常速度)</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-1.5 bg-stone-100 p-1 rounded-xl">
+                        <button id="btn-speed-1" class="bg-indigo-600 text-white text-xs font-bold py-1 px-2 rounded-lg shadow-sm transition-all focus:outline-none">1x</button>
+                        <button id="btn-speed-2" class="bg-stone-200 text-stone-700 hover:bg-stone-300 text-xs font-bold py-1 px-2 rounded-lg transition-all focus:outline-none">2x</button>
+                        <button id="btn-speed-4" class="bg-stone-200 text-stone-700 hover:bg-stone-300 text-xs font-bold py-1 px-2 rounded-lg transition-all focus:outline-none">4x</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- フード（環境）のチューニングコントローラー -->
+            <div class="space-y-3 pt-2 border-t border-stone-100">
+                <h2 class="font-bold text-xs text-stone-400 uppercase tracking-wider">🍱 フード環境の設定</h2>
+                
+                <!-- 最大フード数スライダー -->
+                <div class="space-y-1">
+                    <div class="flex justify-between text-xs">
+                        <span>最大フード配置数:</span>
+                        <span id="label-max-food" class="font-bold text-rose-500">400個</span>
+                    </div>
+                    <input id="slide-max-food" type="range" min="100" max="1000" value="400" class="w-full accent-rose-500 h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- フード自動補充スピードスライダー -->
+                <div class="space-y-1">
+                    <div class="flex justify-between text-xs">
+                        <span>自動補充の間隔 (秒):</span>
+                        <span id="label-food-interval" class="font-bold text-rose-500">0.8秒</span>
+                    </div>
+                    <input id="slide-food-interval" type="range" min="2" max="30" value="8" class="w-full accent-rose-500 h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- 緊急フード降雨ボタン -->
+                <button id="btn-food-shower" class="w-full bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold py-2 px-3 rounded-lg shadow-sm active:scale-95 transition-all focus:outline-none flex items-center justify-center gap-1.5">
+                    🥗 緊急フードシャワー (+30個)
+                </button>
+            </div>
+
+            <!-- 個体DNAインスペクター (クリックした生命体の詳細) -->
+            <div id="inspector-panel" class="pt-3 border-t border-stone-100 hidden">
+                <h2 class="font-bold text-xs text-stone-400 uppercase tracking-wider mb-2 flex justify-between items-center">
+                    <span>🔍 個体観察スコープ</span>
+                    <button id="btn-close-inspector" class="text-stone-400 hover:text-stone-600 text-[10px]">閉じる</button>
+                </h2>
+                <div class="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100/50 space-y-1.5 text-xs text-stone-700">
+                    <div class="flex justify-between">
+                        <span>世代 / 関節数:</span>
+                        <span id="inspect-gen" class="font-bold">--</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>体の大きさ:</span>
+                        <span id="inspect-size" class="font-bold text-teal-600">--</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>エネルギー (現在 / 最大体力):</span>
+                        <span id="inspect-energy" class="font-bold text-indigo-600">--</span>
+                    </div>
+                    <div class="flex justify-between text-emerald-600 font-semibold">
+                        <span>消化吸収（回復）効率:</span>
+                        <span id="inspect-eat-eff" class="font-bold">--</span>
+                    </div>
+                    <div class="flex justify-between text-amber-600 font-semibold">
+                        <span>分裂に必要な体力:</span>
+                        <span id="inspect-repro" class="font-bold">--</span>
+                    </div>
+                    <div class="flex justify-between text-rose-600 font-semibold">
+                        <span>災害熱耐性:</span>
+                        <span id="inspect-resistance" class="font-bold">--</span>
+                    </div>
+                    <div class="flex justify-between text-emerald-600 font-semibold">
+                        <span>冒険距離 (現在 / 最大):</span>
+                        <span id="inspect-distance" class="font-bold">--</span>
+                    </div>
+                    <div class="flex justify-between border-t border-indigo-100 pt-1 mt-1">
+                        <span>運動速度倍率 / 探索本能:</span>
+                        <span id="inspect-traits" class="font-bold text-stone-600">--</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>足(棒)の長さ (平均):</span>
+                        <span id="inspect-bonelength" class="font-bold text-stone-600">--</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- コントロールボタン -->
+        <div class="mt-4 pt-3 border-t border-stone-200 flex flex-wrap gap-2 flex-shrink-0">
+            <button id="btn-spawn" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors flex-1 shadow-sm">
+                生命体をスポーン
+            </button>
+            <button id="btn-disaster" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors flex-1 shadow-sm">
+                熱波災害を誘発
+            </button>
+            <button id="btn-reset" class="bg-stone-500 hover:bg-stone-600 text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors w-full shadow-sm">
+                環境を初期化
+            </button>
+        </div>
+    </div>
+    <!-- 絶滅警告インジケータ -->
+    <div id="empty-warning" class="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white/95 p-6 rounded-2xl shadow-2xl border border-amber-200 text-center max-w-xs z-10">
+        <p class="text-amber-600 font-bold text-lg mb-2">⚠️ 生命が絶滅しました</p>
+        <p class="text-stone-600 text-xs mb-4">災害を生き抜く「耐性」と、遠くのエサを探す「冒険心」のバランスが崩れてしまったかもしれません。新しい生命を誕生させましょう！</p>
+        <button onclick="spawnInitialAgents(12)" class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold py-2 px-4 rounded-lg transition-colors">
+            12体スポーンして再挑戦
+        </button>
+    </div>
+
+
+    <!-- =====================================================================
+         【小分けブロック1】共通シミュレーション設定・グローバル変数
+         ===================================================================== -->
+    <script>
+        const CONFIG = {
+            worldSize: 80,          
+            gravity: -15.0,         // 重力 (基本重力)
+            friction: 0.95,         // 地面との摩擦抵抗をアップ (0.88 -> 0.95) 崖でのズリ落ちを防ぎます
+            bounce: 0.05,           // 跳ね返り
+            initialEnergy: 120,     // 生命体の初期エネルギー
+            energyDepletionRate: 2.0, // 1秒あたりの基本消費
+            energyCostPerMove: 2.0, // スイング時のエネルギー消費ベース
+            maxFoodCount: 400,      
+            foodSpawnInterval: 0.8, 
+            sensorRange: 45,        // 立体センサーの検知範囲
+            dragDamping: 0.94,      // 空気抵抗
+
+            // --- 災害(熱波ゾーン)のパラメータ ---
+            disasterDamage: 14.0,    // 災害エリア内での1秒あたりのダメージ (マイルド調整)
+            disasterDuration: 15.0, // 1つの災害エリア of 持続秒数
+            maxDisasterCount: 3,    // 同時に発生する最大災害ゾーン数
+
+            // --- ユーザーが設定できるパラメータ ---
+            mutationRate: 0.30,     // 突然変異確率
+            jointsToSpawn: 3,       // 初期関節数
+            
+            // --- シミュレーション速度パラメータ ---
+            simSpeed: 1             // 1 = 1x (通常), 2 = 2x (高速), 4 = 4x (超高速)
+        };
+
+        const PALETTE = {
+            bg: 0xe5e5e0,
+            plate: 0xd2b48c,      // 木製ブラウン
+            plateRim: 0x8b5a2b,   // フチ
+            shadow: 0x4a4a4a,
+            foods: 0xff3b30,
+            specialFood: 0xffd700,  // 金色フード
+            disasterLight: 0xff5500, // 災害エリア of ネオン
+            joints: [0xff9500, 0x4cd964, 0x5ac8fa, 0x5856d6, 0xff2d55, 0xffcc00]
+        };
+
+        // ボクセルグリッドを 80x80に設定
+        const GRID_COUNT = 80;    // 80x80 グリッド
+        const CELL_SIZE = 2.0;    // ブロック1個のサイズ
+        const WORLD_OFFSET = 80;  // 座標を中央に寄せるoffset (80 * 2.0 / 2 = 80)
+        const terrainGrid = [];   // [u][v] の高さインデックスを格納
+
+        // グローバルステナー
+        let scene, camera, renderer, controls;
+        let agents = [];
+        let foods = [];
+        let disasters = [];     // 発生中の災害オブジェクト
+        let totalBirthsCount = 0;
+        let maxGenerationCount = 1;
+        let lastTime = 0;
+        let selectedAgent = null;
+
+        // ロックオン対象のエサをハイライト表示するラインオブジェクト
+        let lockOnLine = null;
+    </script>
+
+
+    <!-- =====================================================================
+         【小分けブロック2】物理演算エンジン（関節点・剛体骨・災害ゾーン）
+         ===================================================================== -->
+    <script>
+        // マイクラ風ボクセル地形生成アルゴリズム (高低差を作る)
+        function initTerrainData() {
+            for (let u = 0; u < GRID_COUNT; u++) {
+                terrainGrid[u] = [];
+                for (let v = 0; v < GRID_COUNT; v++) {
+                    const nx = (u - GRID_COUNT / 2) * 0.12; 
+                    const nz = (v - GRID_COUNT / 2) * 0.12;
+                    
+                    // 正弦波をブレンドしてうねりのある立派な島を創る
+                    let heightVal = Math.sin(nx) * Math.cos(nz) * 3.5 + Math.sin(nx * 0.4) * Math.cos(nz * 0.4) * 2.0;
+                    
+                    // マップの外側ほど崖のように高さを盛る
+                    const distFromCenter = Math.sqrt(nx * nx + nz * nz);
+                    if (distFromCenter > 3.0) {
+                        heightVal += (distFromCenter - 3.0) * 2.0;
+                    }
+                    
+                    // 0から最大5ブロックの高さに量子化
+                    let height = Math.floor(heightVal + 2.0);
+                    height = Math.max(0, Math.min(5, height));
+                    
+                    // スポーン中心付近は平らにして歩行バランスを保つ
+                    if (distFromCenter < 1.0) {
+                        height = 1;
+                    }
+
+                    terrainGrid[u][v] = height;
+                }
+            }
+        }
+
+        // 指定の3D空間座標 (x, z) における現在のブロック地面高さを取得
+        function getTerrainHeight(x, z) {
+            const u = Math.floor((x + WORLD_OFFSET) / CELL_SIZE);
+            const v = Math.floor((z + WORLD_OFFSET) / CELL_SIZE);
+            if (u >= 0 && u < GRID_COUNT && v >= 0 && v < GRID_COUNT) {
+                return terrainGrid[u][v] * 0.8;
+            }
+            return 0.0;
+        }
+
+        // 物理的な関節（質量点）クラス
+        class MassPoint {
+            constructor(x, y, z, mass = 1.0, radius = 0.45, isFoot = false) {
+                this.position = new THREE.Vector3(x, y, z);
+                this.velocity = new THREE.Vector3(0, 0, 0);
+                this.force = new THREE.Vector3(0, 0, 0);
+                this.mass = mass;
+                this.radius = radius; // 衝突半径
+                this.isFoot = isFoot; // 脚先関節フラグ（追加の重力と段差降下抵抗を計算するため）
+            }
+
+            applyForce(f) {
+                this.force.add(f);
+            }
+
+            update(dt) {
+                const prevPos = this.position.clone();
+
+                const acceleration = this.force.clone().divideScalar(this.mass);
+                
+                // 足先ジョイントには重力を1.5倍に強化
+                const gravityScale = this.isFoot ? 1.5 : 1.0;
+                const localDrag = this.isFoot ? 0.90 : CONFIG.dragDamping; // 足先の空気抵抗を少し強めてバタつきを抑制
+                
+                acceleration.y += (CONFIG.gravity * gravityScale);
+
+                this.velocity.add(acceleration.multiplyScalar(dt));
+                this.velocity.multiplyScalar(localDrag);
+
+                // 次の移動先候補座標を計算
+                this.position.addScaledVector(this.velocity, dt);
+                this.force.set(0, 0, 0);
+
+                const currentH = getTerrainHeight(prevPos.x, prevPos.z);
+                const nextH = getTerrainHeight(this.position.x, this.position.z);
+                const climbLimit = 0.9; // よじ登れる高さ限界 (約1ブロック分)
+
+                if (nextH - currentH > climbLimit && this.position.y < nextH) {
+                    this.position.x = prevPos.x;
+                    this.position.z = prevPos.z;
+                    this.velocity.x *= -0.2;
+                    this.velocity.z *= -0.2;
+                }
+
+                this.handleCollisions();
+            }
+
+            handleCollisions() {
+                const terrainHeight = getTerrainHeight(this.position.x, this.position.z);
+                
+                // ブロック床面との衝突
+                if (this.position.y < terrainHeight + this.radius) {
+                    this.position.y = terrainHeight + this.radius;
+                    this.velocity.y = -this.velocity.y * CONFIG.bounce;
+                    
+                    // 足先が地面を踏みしめた時の摩擦抵抗を格段に引き上げ
+                    const frictionScale = this.isFoot ? 0.70 : CONFIG.friction;
+                    this.velocity.x *= frictionScale;
+                    this.velocity.z *= frictionScale;
+                }
+
+                const distFromCenter = Math.sqrt(this.position.x * this.position.x + this.position.z * this.position.z);
+                if (distFromCenter > CONFIG.worldSize - this.radius) {
+                    const angle = Math.atan2(this.position.z, this.position.x);
+                    this.position.x = (CONFIG.worldSize - this.radius) * Math.cos(angle);
+                    this.position.z = (CONFIG.worldSize - this.radius) * Math.sin(angle);
+                    
+                    const normal = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+                    const dot = this.velocity.dot(normal);
+                    if (dot > 0) {
+                        this.velocity.addScaledVector(normal, -dot * (1 + CONFIG.bounce));
+                    }
+                }
+            }
+        }
+
+        // 伸縮しない骨格リンク
+        class RigidBone {
+            constructor(pA, pB, fixedLength) {
+                this.pA = pA;
+                this.pB = pB;
+                this.length = fixedLength;
+            }
+
+            resolve() {
+                const delta = new THREE.Vector3().subVectors(this.pB.position, this.pA.position);
+                const currentLength = delta.length();
+                if (currentLength < 0.0001) return;
+
+                const diff = this.length - currentLength;
+                const percent = (diff / currentLength) * 0.5;
+                const offset = delta.clone().multiplyScalar(percent);
+
+                const totalMass = this.pA.mass + this.pB.mass;
+                const factorA = this.pB.mass / totalMass;
+                const factorB = this.pA.mass / totalMass;
+
+                this.pA.position.addScaledVector(offset, -factorA);
+                this.pB.position.addScaledVector(offset, factorB);
+
+                const relativeVel = new THREE.Vector3().subVectors(this.pB.velocity, this.pA.velocity);
+                const norm = delta.clone().normalize();
+                const velProjection = relativeVel.dot(norm);
+
+                this.pA.velocity.addScaledVector(norm, velProjection * factorA * 0.5);
+                this.pB.velocity.addScaledVector(norm, -velProjection * factorB * 0.5);
+            }
+        }
+
+        // 災害エリア
+        class DisasterZone {
+            constructor(x, z, radius = 5.5) {
+                this.position = new THREE.Vector3(x, getTerrainHeight(x, z) + 0.05, z);
+                this.radius = radius;
+                this.timeLeft = CONFIG.disasterDuration;
+                this.active = true;
+
+                this.group = new THREE.Group();
+
+                const domeGeo = new THREE.SphereGeometry(radius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+                const domeMat = new THREE.MeshBasicMaterial({
+                    color: PALETTE.disasterLight,
+                    transparent: true,
+                    opacity: 0.15,
+                    side: THREE.DoubleSide,
+                    depthWrite: false
+                });
+                this.domeMesh = new THREE.Mesh(domeGeo, domeMat);
+                this.group.add(this.domeMesh);
+
+                const ringGeo = new THREE.RingGeometry(radius - 0.15, radius, 32);
+                const ringMat = new THREE.MeshBasicMaterial({
+                    color: PALETTE.disasterLight,
+                    side: THREE.DoubleSide
+                });
+                this.ringMesh = new THREE.Mesh(ringGeo, ringMat);
+                this.ringMesh.rotation.x = Math.PI / 2;
+                this.group.add(this.ringMesh);
+
+                this.group.position.copy(this.position);
+                scene.add(this.group);
+            }
+
+            update(dt) {
+                this.timeLeft -= dt;
+                if (this.timeLeft < 3.0) {
+                    const blink = Math.floor(this.timeLeft * 8) % 2 === 0;
+                    if (this.domeMesh) this.domeMesh.visible = blink;
+                }
+                if (this.timeLeft <= 0) {
+                    this.destroy();
+                }
+            }
+
+            destroy() {
+                this.active = false;
+                scene.remove(this.group);
+                if (this.domeMesh) {
+                    this.domeMesh.geometry.dispose();
+                    this.domeMesh.material.dispose();
+                }
+                if (this.ringMesh) {
+                    this.ringMesh.geometry.dispose();
+                    this.ringMesh.material.dispose();
+                }
+            }
+        }
+    </script>
+
+
+    <!-- =====================================================================
+         // 小分けブロック3: 人工生命体エージェント（遺伝・3D運動制御・突然変異）
+         ===================================================================== -->
+    <script>
+        class Agent {
+            constructor(dna = null, parentPos = null, generation = 1, jointsCount = null) {
+                this.generation = generation;
+                this.alive = true;
+                
+                this.group = new THREE.Group();
+
+                if (dna) {
+                    this.jointsCount = dna.jointsCount;
+                } else {
+                    this.jointsCount = jointsCount || CONFIG.jointsToSpawn;
+                }
+                this.legsCount = this.jointsCount - 1;
+
+                if (dna) {
+                    this.dna = this.cloneDNA(dna);
+                    if (Math.random() < CONFIG.mutationRate) {
+                        this.mutateDNA();
+                    }
+                } else {
+                    this.dna = this.generateRandomDNA();
+                }
+
+                this.color = this.determineVisualColor();
+
+                // 誕生時の初期スタミナ（初期体力）を最大体力の50%に引き上げ調整
+                this.energy = this.dna.maxEnergy * 0.50;
+
+                const initX = parentPos ? parentPos.x + (Math.random() - 0.5) * 2 : (Math.random() - 0.5) * (CONFIG.worldSize * 0.9);
+                const initZ = parentPos ? parentPos.z + (Math.random() - 0.5) * 2 : (Math.random() - 0.5) * (CONFIG.worldSize * 0.9);
+                const initY = getTerrainHeight(initX, initZ) + 1.8;
+
+                this.spawnPosition = new THREE.Vector3(initX, initY, initZ);
+                this.maxDistFromSpawn = 0.0;
+
+                // 追跡しているエサの参照を保持
+                this.targetedFood = null;
+
+                // サイズスケールを物理点、質量に反映
+                const scale = this.dna.sizeScale;
+
+                this.points = [];
+                // 頭 (中心ジョイント)
+                this.points.push(new MassPoint(initX, initY, initZ, this.dna.masses[0] * scale, 0.45 * scale * 1.3, false));
+
+                // parentIndices に従いツリー構造で関節を構築
+                for (let i = 0; i < this.legsCount; i++) {
+                    const parentIdx = this.dna.parentIndices[i];
+                    const parentPoint = this.points[parentIdx] || this.points[0];
+                    
+                    const angle = (i / this.legsCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+                    const legLen = this.dna.boneLengths[i] * scale;
+                    const legX = parentPoint.position.x + legLen * Math.cos(angle);
+                    const legZ = parentPoint.position.z + legLen * Math.sin(angle);
+                    const legY = parentPoint.position.y;
+                    
+                    // 末端の節（脚先ポイント）には isFoot=true をセット
+                    const isFoot = (i === this.legsCount - 1 || !this.dna.parentIndices.includes(i + 1));
+                    this.points.push(new MassPoint(legX, legY, legZ, this.dna.masses[i + 1] * scale, 0.45 * scale, isFoot));
+                }
+
+                this.bones = [];
+                for (let i = 0; i < this.legsCount; i++) {
+                    const parentIdx = this.dna.parentIndices[i];
+                    const childIdx = i + 1;
+                    this.bones.push(new RigidBone(this.points[parentIdx], this.points[childIdx], this.dna.boneLengths[i] * scale));
+                }
+
+                this.timeCounter = Math.random() * 100.0;
+
+                this.meshes = [];
+                this.boneCylinders = [];
+                this.createVisuals();
+
+                scene.add(this.group);
+            }
+
+            generateRandomDNA() {
+                const baseFreq = 5.0 + (Math.random() - 0.5) * 0.5;
+                
+                const masses = [0.8 + Math.random() * 0.6];
+                const boneLengths = [];
+                const frequencies = [];
+                const phases = [];
+                const pitchPhaseOffsets = [];
+                const parentIndices = []; // つながり親インデックス
+
+                for (let i = 0; i < this.legsCount; i++) {
+                    masses.push(0.4 + Math.random() * 0.4);
+                    boneLengths.push(1.1 + Math.random() * 0.5);
+                    frequencies.push(baseFreq + (Math.random() - 0.5) * 0.3);
+                    phases.push((i / this.legsCount) * Math.PI + (Math.random() - 0.5) * 0.5);
+                    pitchPhaseOffsets.push(Math.PI / 2 + (Math.random() - 0.5) * 0.2);
+                    
+                    // 足が4個以上の時のみ枝分かれを許可
+                    if (this.legsCount >= 4) {
+                        const newChildIdx = parentIndices.length + 1;
+                        const randParentIdx = Math.floor(Math.random() * newChildIdx);
+                        parentIndices.push(randParentIdx);
+                    } else {
+                        parentIndices.push(0); 
+                    }
+                }
+
+                const initialSize = 0.6 + Math.random() * 1.0;
+                const initialMaxEnergy = (130 + (Math.random() - 0.5) * 30) * initialSize; 
+                
+                // 分裂しきい値を最大エネルギーの0.85〜0.95倍に設定
+                const initialReproduceThreshold = initialMaxEnergy * (0.85 + Math.random() * 0.10);
+
+                return {
+                    jointsCount: this.jointsCount,
+                    masses: masses,
+                    boneLengths: boneLengths,
+                    frequencies: frequencies,
+                    phases: phases,
+                    pitchPhaseOffsets: pitchPhaseOffsets,
+                    parentIndices: parentIndices, 
+                    
+                    tempoScale: 1.0 + (Math.random() - 0.5) * 0.2,
+                    yawAmpScale: 1.0 + (Math.random() - 0.5) * 0.3,
+                    pitchAmpScale: 1.0 + (Math.random() - 0.5) * 0.3,
+
+                    resistance: Math.random() * 0.5,
+                    // 探索衝動(冒険心)をさらに高めにアップ
+                    exploreUrge: 1.2 + Math.random() * 1.8,
+
+                    // 消化吸収効率の最低値を1.0(100%)以上に底上げ
+                    predationEfficiency: 1.1 + Math.random() * 0.5,
+
+                    maxEnergy: initialMaxEnergy,
+                    reproduceThreshold: initialReproduceThreshold,
+                    sizeScale: initialSize,
+
+                    motorAmplitude: 0.25 + Math.random() * 0.45,
+                    pitchAmplitude: 0.20 + Math.random() * 0.40,
+                    biasAngle: (Math.random() - 0.5) * 0.2,
+                    hue: Math.random()
+                };
+            }
+
+            cloneDNA(source) {
+                return {
+                    jointsCount: source.jointsCount,
+                    masses: [...source.masses],
+                    boneLengths: [...source.boneLengths],
+                    frequencies: [...source.frequencies],
+                    phases: [...source.phases],
+                    pitchPhaseOffsets: source.pitchPhaseOffsets ? [...source.pitchPhaseOffsets] : Array(source.jointsCount - 1).fill(Math.PI / 2),
+                    parentIndices: source.parentIndices ? [...source.parentIndices] : Array(source.jointsCount - 1).fill(0),
+
+                    tempoScale: source.tempoScale !== undefined ? source.tempoScale : 1.0,
+                    yawAmpScale: source.yawAmpScale !== undefined ? source.yawAmpScale : 1.0,
+                    pitchAmpScale: source.pitchAmpScale !== undefined ? source.pitchAmpScale : 1.0,
+
+                    resistance: source.resistance !== undefined ? source.resistance : 0.2,
+                    exploreUrge: source.exploreUrge !== undefined ? source.exploreUrge : 1.5,
+
+                    predationEfficiency: source.predationEfficiency !== undefined ? source.predationEfficiency : 1.0,
+
+                    maxEnergy: source.maxEnergy !== undefined ? source.maxEnergy : 130,
+                    reproduceThreshold: source.reproduceThreshold !== undefined ? source.reproduceThreshold : 185,
+                    sizeScale: source.sizeScale !== undefined ? source.sizeScale : 1.0,
+
+                    motorAmplitude: source.motorAmplitude,
+                    pitchAmplitude: source.pitchAmplitude,
+                    biasAngle: source.biasAngle,
+                    hue: source.hue !== undefined ? source.hue : Math.random()
+                };
+            }
+
+            // 足の本数が増えやすい突然変異
+            mutateDNA() {
+                const mutRate = CONFIG.mutationRate;
+                const addNoise = (val, scale) => val + (Math.random() - 0.5) * 2.0 * scale * mutRate;
+                
+                const jointMutationProbability = Math.max(0.35, mutRate * 1.5);
+                if (Math.random() < jointMutationProbability) {
+                    const change = Math.random() < 0.60 ? 1 : -1;
+                    const nextJoints = Math.max(3, Math.min(8, this.jointsCount + change)); 
+                    if (nextJoints !== this.jointsCount) {
+                        this.jointsCount = nextJoints;
+                        this.legsCount = this.jointsCount - 1;
+                        this.adjustDNAlengths();
+                    }
+                }
+
+                if (this.legsCount >= 4 && this.dna.parentIndices && Math.random() < mutRate * 0.8) {
+                    const idx = Math.floor(Math.random() * this.legsCount);
+                    const childNum = idx + 1; 
+                    this.dna.parentIndices[idx] = Math.floor(Math.random() * childNum);
+                }
+
+                this.dna.masses = this.dna.masses.map(m => Math.max(0.4, Math.min(2.0, addNoise(m, 0.15))));
+                this.dna.boneLengths = this.dna.boneLengths.map(l => Math.max(0.5, Math.min(3.0, addNoise(l, 0.4))));
+                
+                const avgFreq = this.dna.frequencies.reduce((a, b) => a + b, 0) / this.legsCount;
+                const mutatedBase = Math.max(2.0, Math.min(9.0, addNoise(avgFreq, 0.6)));
+                this.dna.frequencies = this.dna.frequencies.map(() => Math.max(1.5, Math.min(10.0, mutatedBase + (Math.random() - 0.5) * 0.3)));
+
+                this.dna.phases = this.dna.phases.map(p => addNoise(p, Math.PI));
+                this.dna.pitchPhaseOffsets = this.dna.pitchPhaseOffsets.map(o => addNoise(o, Math.PI / 2));
+                
+                this.dna.motorAmplitude = Math.max(0.1, Math.min(0.85, addNoise(this.dna.motorAmplitude, 0.12)));
+                this.dna.pitchAmplitude = Math.max(0.1, Math.min(0.80, addNoise(this.dna.pitchAmplitude, 0.1)));
+                this.dna.biasAngle = Math.max(-0.5, Math.min(0.5, addNoise(this.dna.biasAngle, 0.1)));
+                
+                this.dna.tempoScale = Math.max(0.5, Math.min(2.5, addNoise(this.dna.tempoScale, 0.15)));
+                this.dna.yawAmpScale = Math.max(0.3, Math.min(2.5, addNoise(this.dna.yawAmpScale, 0.20)));
+                this.dna.pitchAmpScale = Math.max(0.3, Math.min(2.5, addNoise(this.dna.pitchAmpScale, 0.20)));
+
+                this.dna.resistance = Math.max(0.0, Math.min(1.0, addNoise(this.dna.resistance, 0.18)));
+                
+                // 突然変異による探索衝動の増減
+                this.dna.exploreUrge = Math.max(0.2, Math.min(4.0, addNoise(this.dna.exploreUrge, 0.25)));
+
+                this.dna.predationEfficiency = Math.max(1.0, Math.min(2.0, addNoise(this.dna.predationEfficiency, 0.20)));
+
+                this.dna.sizeScale = Math.max(0.4, Math.min(2.5, addNoise(this.dna.sizeScale, 0.25)));
+
+                this.dna.maxEnergy = Math.max(80 * this.dna.sizeScale, Math.min(300 * this.dna.sizeScale, addNoise(this.dna.maxEnergy, 30)));
+                
+                this.dna.reproduceThreshold = this.dna.maxEnergy * (0.85 + Math.random() * 0.10);
+
+                this.dna.hue = (this.dna.hue + (Math.random() - 0.5) * 0.45 * mutRate);
+                this.dna.hue = this.dna.hue - Math.floor(this.dna.hue); 
+            }
+
+            adjustDNAlengths() {
+                while (this.dna.masses.length < this.jointsCount) {
+                    this.dna.masses.push(0.4 + Math.random() * 0.4);
+                }
+                this.dna.masses = this.dna.masses.slice(0, this.jointsCount);
+
+                while (this.dna.boneLengths.length < this.legsCount) {
+                    this.dna.boneLengths.push(1.1 + Math.random() * 0.5);
+                }
+                this.dna.boneLengths = this.dna.boneLengths.slice(0, this.legsCount);
+
+                if (!this.dna.parentIndices) {
+                    this.dna.parentIndices = [];
+                }
+                while (this.dna.parentIndices.length < this.legsCount) {
+                    const newChildIdx = this.dna.parentIndices.length + 1;
+                    if (this.legsCount >= 4) {
+                        const randParentIdx = Math.floor(Math.random() * newChildIdx);
+                        this.dna.parentIndices.push(randParentIdx);
+                    } else {
+                        this.dna.parentIndices.push(0);
+                    }
+                }
+                this.dna.parentIndices = this.dna.parentIndices.slice(0, this.legsCount);
+
+                if (this.legsCount < 4) {
+                    for (let i = 0; i < this.legsCount; i++) {
+                        this.dna.parentIndices[i] = 0;
+                    }
+                }
+
+                const baseF = this.dna.frequencies[0] || 5.0;
+                while (this.dna.frequencies.length < this.legsCount) {
+                    this.dna.frequencies.push(baseF + (Math.random() - 0.5) * 0.3);
+                }
+                this.dna.frequencies = this.dna.frequencies.slice(0, this.legsCount);
+
+                while (this.dna.phases.length < this.legsCount) {
+                    this.dna.phases.push(Math.random() * Math.PI * 2);
+                }
+                this.dna.phases = this.dna.phases.slice(0, this.legsCount);
+
+                while (this.dna.pitchPhaseOffsets.length < this.legsCount) {
+                    this.dna.pitchPhaseOffsets.push(Math.PI / 2 + (Math.random() - 0.5) * 0.2);
+                }
+                this.dna.pitchPhaseOffsets = this.dna.pitchPhaseOffsets.slice(0, this.legsCount);
+            }
+
+            // 遺伝された色相に基づいたカラー表現
+            determineVisualColor() {
+                if (this.dna.resistance > 0.65) {
+                    return 0xdad3a8; 
+                } else if (this.dna.resistance > 0.4) {
+                    return 0xb57c50; 
+                }
+                
+                const tempColor = new THREE.Color();
+                tempColor.setHSL(this.dna.hue, 0.85, 0.55);
+                return tempColor.getHex();
+            }
+
+            createVisuals() {
+                const scale = this.dna.sizeScale;
+
+                const jointMaterial = new THREE.MeshPhysicalMaterial({
+                    color: this.color,
+                    roughness: this.dna.resistance > 0.4 ? 0.1 : 0.2,
+                    metalness: this.dna.resistance > 0.4 ? 0.8 : 0.1,
+                    clearcoat: 0.6,
+                    clearcoatRoughness: 0.1
+                });
+
+                const boneMaterial = new THREE.MeshPhysicalMaterial({
+                    color: 0xeeeeee,
+                    roughness: 0.3,
+                    metalness: 0.2
+                });
+
+                this.points.forEach((pt, i) => {
+                    const geo = new THREE.SphereGeometry(pt.radius, 16, 16);
+                    const mesh = new THREE.Mesh(geo, jointMaterial);
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    mesh.userData = { agentRef: this };
+                    this.group.add(mesh);
+                    this.meshes.push(mesh);
+                });
+
+                this.bones.forEach((bone) => {
+                    const boneGeo = new THREE.CylinderGeometry(0.11 * scale, 0.11 * scale, bone.length, 8);
+                    const boneMesh = new THREE.Mesh(boneGeo, boneMaterial);
+                    boneMesh.castShadow = true;
+                    boneMesh.userData = { agentRef: this };
+                    this.group.add(boneMesh);
+                    this.boneCylinders.push(boneMesh);
+                });
+            }
+
+            // 親・子間の作用反作用スイングAI
+            actAndControl(dt) {
+                const metabolismLoad = 1.0 + (this.dna.resistance * 1.5);
+                this.timeCounter += dt * this.dna.tempoScale;
+
+                const headPos = this.points[0].position;
+
+                // 完全に一番近いエサを狙う
+                let closestFood = null;
+                let minDistance = CONFIG.sensorRange;
+
+                foods.forEach(food => {
+                    const d = headPos.distanceTo(food.position);
+                    if (d < minDistance) {
+                        minDistance = d;
+                        closestFood = food;
+                    }
+                });
+
+                this.targetedFood = closestFood;
+
+                // 2. 目的地への意思ベクトルの決定
+                let desiredVec = new THREE.Vector3();
+                let hasGoal = false;
+
+                if (closestFood) {
+                    desiredVec.subVectors(closestFood.position, headPos);
+                    hasGoal = true;
+                } else {
+                    const deltaSpawnX = headPos.x - this.spawnPosition.x;
+                    const deltaSpawnZ = headPos.z - this.spawnPosition.z;
+                    const distFromSpawn = Math.sqrt(deltaSpawnX * deltaSpawnX + deltaSpawnZ * deltaSpawnZ);
+
+                    if (distFromSpawn > 1.0) {
+                        desiredVec.set(deltaSpawnX, 0, deltaSpawnZ); 
+                        hasGoal = true;
+                    } else {
+                        const angle = this.dna.phases[0];
+                        desiredVec.set(Math.cos(angle), 0, Math.sin(angle));
+                        hasGoal = true;
+                    }
+                }
+                desiredVec.y = 0;
+                desiredVec.normalize();
+
+                // 3. 災害ゾーンを自律的に避ける危険予測ベクトル
+                let avoidVec = new THREE.Vector3(0, 0, 0);
+                disasters.forEach(disaster => {
+                    const distToDisaster = headPos.distanceTo(disaster.position);
+                    const alertRadius = disaster.radius + (3.0 * this.dna.sizeScale);
+                    
+                    if (distToDisaster < alertRadius) {
+                        const pushAway = new THREE.Vector3().subVectors(headPos, disaster.position);
+                        pushAway.y = 0;
+                        pushAway.normalize();
+
+                        const fearFactor = 1.0 - this.dna.resistance;
+                        const proximityWeight = (1.0 - distToDisaster / alertRadius) * fearFactor;
+                        avoidVec.addScaledVector(pushAway, proximityWeight);
+                    }
+                });
+
+                // 4. 行きたい方向と回避を合成
+                let finalTargetVec = new THREE.Vector3().addVectors(desiredVec, avoidVec.multiplyScalar(2.0));
+                let targetYaw = 0;
+                let hasTarget = false;
+
+                if (finalTargetVec.lengthSq() > 0.001) {
+                    finalTargetVec.normalize();
+                    targetYaw = Math.atan2(finalTargetVec.z, finalTargetVec.x);
+                    hasTarget = true;
+                }
+
+                // 身体の向きを求める
+                const tailPos = new THREE.Vector3();
+                for (let i = 1; i < this.points.length; i++) {
+                    tailPos.add(this.points[i].position);
+                }
+                tailPos.divideScalar(this.legsCount);
+                const forwardVec = new THREE.Vector3().subVectors(headPos, tailPos);
+                const currentYaw = Math.atan2(forwardVec.z, forwardVec.x);
+
+                const curDist = headPos.distanceTo(this.spawnPosition);
+                if (curDist > this.maxDistFromSpawn) {
+                    this.maxDistFromSpawn = curDist;
+                }
+
+                let turnSignal = 0;
+                if (hasTarget) {
+                    let angleDiff = targetYaw - currentYaw;
+                    angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+                    turnSignal = Math.max(-1.0, Math.min(1.0, angleDiff * 4.0));
+                }
+
+                // 物理的な熱ダメージ
+                let physicalDamageAvoidForce = new THREE.Vector3(0, 0, 0);
+                disasters.forEach(disaster => {
+                    const distToDisaster = headPos.distanceTo(disaster.position);
+                    const dangerRadius = disaster.radius + 1.5;
+                    
+                    if (distToDisaster < dangerRadius) {
+                        const damageReduction = this.dna.resistance;
+                        const netDamage = CONFIG.disasterDamage * (1.0 - damageReduction) * dt;
+                        this.energy -= netDamage;
+
+                        if (this.meshes[0]) {
+                            this.meshes[0].material.emissive.setHex(0xff3300);
+                            setTimeout(() => {
+                                if (this.alive && this.meshes[0]) this.meshes[0].material.emissive.setHex(0x000000);
+                            }, 120);
+                        }
+
+                        if (distToDisaster > 0.1 && this.dna.resistance < 0.8) {
+                            const pushAway = new THREE.Vector3().subVectors(headPos, disaster.position).normalize();
+                            const avoidStrength = (1.0 - this.dna.resistance) * 4.0 * (1.0 - distToDisaster / dangerRadius);
+                            physicalDamageAvoidForce.addScaledVector(pushAway, avoidStrength);
+                        }
+                    }
+                });
+                if (physicalDamageAvoidForce.lengthSq() > 0.01) {
+                    this.points[0].applyForce(physicalDamageAvoidForce);
+                }
+
+                const baseDir = forwardVec.clone().normalize();
+                const axisY = new THREE.Vector3(0, 1, 0);
+
+                // 省エネ休眠（冬眠）モード
+                const isStarving = this.energy < (this.dna.maxEnergy * 0.15);
+                const starvationDamping = isStarving ? 0.3 : 1.0;
+
+                // 任意の親・子関節間で力を及ぼし合うツリーサーボ物理AI
+                for (let i = 0; i < this.legsCount; i++) {
+                    const parentIdx = this.dna.parentIndices[i];
+                    const childIdx = i + 1;
+                    
+                    const parentPoint = this.points[parentIdx] || this.points[0];
+                    const childPoint = this.points[childIdx];
+                    
+                    const baseRadialAngle = (i / this.legsCount) * Math.PI * 2 - Math.PI;
+                    const legLeftRightFactor = Math.sin(baseRadialAngle);
+                    
+                    let yawAmpScale = this.dna.yawAmpScale;
+                    let pitchAmpScale = this.dna.pitchAmpScale;
+
+                    if (turnSignal > 0) {
+                        if (legLeftRightFactor > 0) yawAmpScale *= (1.0 - turnSignal * 0.9);
+                        else yawAmpScale *= (1.0 + turnSignal * 0.5);
+                    } else if (turnSignal < 0) {
+                        if (legLeftRightFactor < 0) yawAmpScale *= (1.0 + turnSignal * 0.9);
+                        else yawAmpScale *= (1.0 - turnSignal * 0.5);
+                    }
+
+                    // 探索衝動(冒険心)の値を歩行速度に連動
+                    if (!closestFood) {
+                        yawAmpScale *= (this.dna.exploreUrge * 1.2);
+                        pitchAmpScale *= Math.min(2.0, this.dna.exploreUrge * 1.2);
+                    }
+
+                    const swingYaw = Math.sin(this.timeCounter * this.dna.frequencies[i] + this.dna.phases[i]) 
+                                     * this.dna.motorAmplitude * yawAmpScale * starvationDamping;
+
+                    const pitchOffset = this.dna.pitchPhaseOffsets[i];
+                    
+                    // 足が宙に浮いて「段差の下」にあるとき、足を下方向へ積極的に伸ばして地面を捉えようとする補正
+                    const descendBias = (childPoint.position.y > getTerrainHeight(childPoint.position.x, childPoint.position.z)) ? -0.35 : -0.15;
+                    
+                    const swingPitch = Math.sin(this.timeCounter * this.dna.frequencies[i] + this.dna.phases[i] + pitchOffset) 
+                                       * this.dna.pitchAmplitude * pitchAmpScale * starvationDamping;
+
+                    const steerBias = turnSignal * 0.35 * (legLeftRightFactor > 0 ? -1 : 1);
+
+                    const targetAngleYaw = baseRadialAngle + this.dna.biasAngle + swingYaw + steerBias;
+                    const targetAnglePitch = descendBias + swingPitch;
+
+                    const legPitchAxis = baseDir.clone().applyAxisAngle(axisY, baseRadialAngle + Math.PI / 2).normalize();
+                    const dir = baseDir.clone()
+                        .applyAxisAngle(axisY, targetAngleYaw)
+                        .applyAxisAngle(legPitchAxis, targetAnglePitch)
+                        .normalize();
+                    
+                    const targetPos = parentPoint.position.clone().addScaledVector(dir, this.bones[i].length);
+
+                    const muscleStrength = 55.0;
+                    const force = new THREE.Vector3().subVectors(targetPos, childPoint.position).multiplyScalar(muscleStrength);
+                    
+                    childPoint.applyForce(force);
+                    parentPoint.applyForce(force.clone().negate());
+                }
+
+                if (hasTarget) {
+                    const targetDirectionVec = new THREE.Vector3(Math.cos(targetYaw), 0, Math.sin(targetYaw));
+                    const dotForward = baseDir.dot(targetDirectionVec);
+                    
+                    let assistForceScale = dotForward < 0.5 ? 2.8 : 2.0; 
+                    if (!closestFood) {
+                        assistForceScale *= (this.dna.exploreUrge * 1.1);
+                    }
+
+                    const starvationForceScale = isStarving ? 0.4 : 1.0;
+                    const pushForce = targetDirectionVec.multiplyScalar(assistForceScale * this.points[0].mass * starvationForceScale);
+                    this.points[0].applyForce(pushForce);
+                }
+
+                let totalWork = 0;
+                this.points.forEach((p, idx) => {
+                    if (idx > 0) totalWork += p.force.length();
+                });
+
+                const starvationMetabolismFactor = isStarving ? 0.35 : 1.0;
+                const totalEnergyLoss = ((CONFIG.energyDepletionRate * metabolismLoad * dt) + 
+                                       ((totalWork / this.legsCount) * CONFIG.energyCostPerMove * dt * 0.0075)) * starvationMetabolismFactor;
+                this.energy -= totalEnergyLoss;
+            }
+
+            update(dt) {
+                if (!this.alive) return;
+
+                this.actAndControl(dt);
+
+                this.points.forEach(p => p.update(dt));
+
+                for (let i = 0; i < 4; i++) {
+                    this.bones.forEach(b => b.resolve());
+                }
+
+                this.syncVisuals();
+                this.checkFoodCollision();
+
+                if (this.energy <= 0) {
+                    this.die();
+                } else if (this.energy >= this.dna.reproduceThreshold) {
+                    this.reproduce();
+                }
+            }
+
+            syncVisuals() {
+                this.points.forEach((pt, i) => {
+                    if (this.meshes[i]) {
+                        this.meshes[i].position.copy(pt.position);
+                    }
+                });
+
+                this.bones.forEach((bone, i) => {
+                    const cylinder = this.boneCylinders[i];
+                    if (!cylinder) return;
+
+                    const pA = bone.pA.position;
+                    const pB = bone.pB.position;
+
+                    const midPoint = new THREE.Vector3().addVectors(pA, pB).multiplyScalar(0.5);
+                    cylinder.position.copy(midPoint);
+
+                    const direction = new THREE.Vector3().subVectors(pB, pA).normalize();
+                    const upVec = new THREE.Vector3(0, 1, 0);
+                    const quaternion = new THREE.Quaternion().setFromUnitVectors(upVec, direction);
+                    cylinder.setRotationFromQuaternion(quaternion);
+                });
+            }
+
+            checkFoodCollision() {
+                for (let i = foods.length - 1; i >= 0; i--) {
+                    const food = foods[i];
+                    let foodEaten = false;
+
+                    for (let j = 0; j < this.points.length; j++) {
+                        const pt = this.points[j];
+                        const dist = pt.position.distanceTo(food.position);
+                        
+                        const eatRadius = pt.radius + (0.95 * this.dna.sizeScale);
+                        
+                        if (dist < eatRadius) {
+                            const baseNutrient = food.userData.isGolden ? 360 : 120;
+                            
+                            this.energy += baseNutrient * this.dna.predationEfficiency;
+
+                            if (this.energy > this.dna.maxEnergy) {
+                                this.energy = this.dna.maxEnergy;
+                            }
+
+                            scene.remove(food);
+                            foods.splice(i, 1);
+                            updateUI();
+                            
+                            foodEaten = true;
+                            break; 
+                        }
+                    }
+                    
+                    if (foodEaten) {
+                        continue;
+                    }
+                }
+            }
+
+            reproduce() {
+                // 親の分裂後消費コストを45%に緩和
+                this.energy -= (this.dna.reproduceThreshold * 0.45);
+                
+                const child = new Agent(this.dna, this.points[0].position, this.generation + 1);
+                agents.push(child);
+
+                totalBirthsCount++;
+                if (child.generation > maxGenerationCount) {
+                    maxGenerationCount = child.generation;
+                }
+
+                child.points.forEach(p => {
+                    p.velocity.y += 3.5;
+                    p.velocity.x += (Math.random() - 0.5) * 1.5;
+                });
+                
+                updateUI();
+            }
+
+            die() {
+                this.alive = false;
+
+                if (selectedAgent === this) {
+                    selectedAgent = null;
+                    const inspectorPanel = document.getElementById('inspector-panel');
+                    if (inspectorPanel) inspectorPanel.classList.add('hidden');
+                }
+
+                this.bones = []; 
+                this.boneCylinders.forEach(bc => scene.remove(bc));
+                this.boneCylinders = [];
+
+                this.points.forEach(p => {
+                    p.velocity.set(
+                        (Math.random() - 0.5) * 2.5,
+                        Math.random() * 2.0,
+                        (Math.random() - 0.5) * 2.5
+                    );
+                    p.dragDamping = 0.94;
+                });
+
+                setTimeout(() => {
+                    this.destroy();
+                }, 2000);
+            }
+
+            destroy() {
+                this.meshes.forEach(m => {
+                    m.geometry.dispose();
+                    if (m.material.dispose) m.material.dispose();
+                    this.group.remove(m);
+                });
+                this.group.clear();
+                scene.remove(this.group);
+
+                const idx = agents.indexOf(this);
+                if (idx !== -1) {
+                    agents.splice(idx, 1);
+                }
+                updateUI();
+            }
+        }
+    </script>
+
+
+    <!-- =====================================================================
+         【小分けブロック4】3D描画・ループ・操作イベント管理
+         ===================================================================== -->
+    <script>
+        // --- 3D描画エリア of セットアップ ---
+        function init3D() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(PALETTE.bg);
+            
+            // 霧(フォグ)効果の生成処理を完全にオミット
+            scene.fog = null;
+
+            // カメラの設定
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(38, 25, 38);
+
+            // レンダラーの設定（影の描画を有効化）
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            
+            // キャンバスを確実に追加
+            const dom = renderer.domElement;
+            document.body.appendChild(dom);
+
+            // カメラコントローラーの設定
+            controls = new THREE.OrbitControls(camera, dom);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.05;
+            controls.minDistance = 8;
+            controls.maxDistance = 150; // カメラ最大ズームアウト可能距離を拡大
+            controls.target.set(0, 0, 0);
+
+            // 環境光のパワーアップ
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+            scene.add(ambientLight);
+
+            // メイン平行光源 (太陽光のような柔らかい影を作る)
+            const dirLight = new THREE.DirectionalLight(0xfff8ee, 1.1);
+            dirLight.position.set(25, 65, 25); // 広大な島全体を照らせるように高さを調整
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 180;
+            const d = 110; // シャドウエリアの拡大
+            dirLight.shadow.camera.left = -d;
+            dirLight.shadow.camera.right = d;
+            dirLight.shadow.camera.top = d;
+            dirLight.shadow.camera.bottom = -d;
+            dirLight.shadow.bias = -0.0005;
+            scene.add(dirLight);
+
+            // 下からの照り返しライト
+            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.55);
+            hemiLight.position.set(0, 50, 0);
+            scene.add(hemiLight);
+
+            // マイクラ風ボクセル地形の構築
+            createDioramaBase();
+
+            // ロックオン追跡ラインの初期化
+            const lineMat = new THREE.LineBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.7,
+                linewidth: 2 // 線の太さ
+            });
+            const lineGeo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0,0,0),
+                new THREE.Vector3(0,0,0)
+            ]);
+            lockOnLine = new THREE.Line(lineGeo, lineMat);
+            lockOnLine.visible = false;
+            scene.add(lockOnLine);
+
+            // イベントリスナーを 3Dキャンバス自体にバインド
+            dom.addEventListener('pointerdown', onPointerDown, false);
+            dom.addEventListener('pointerup', onPointerUp, false);
+
+            // 画面サイズが変更されたときのイベントを登録
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // 画面サイズ変更時に3Dカメラと描画エリアを追従させる
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // マイクラ風のボクセル土台を1回の大容量InstancedMesh描画で構築（描画を60FPSに超軽量化！）
+        function createDioramaBase() {
+            initTerrainData();
+
+            // 隙間を開けてグリッドラインが見えるように設計
+            const blockGeo = new THREE.BoxGeometry(CELL_SIZE - 0.05, 0.8, CELL_SIZE - 0.05);
+            
+            // 地面を不透明にリファイン
+            const blockMat = new THREE.MeshStandardMaterial({
+                roughness: 0.85,
+                metalness: 0.15,
+                transparent: false,
+                opacity: 1.0,
+                depthWrite: true
+            });
+
+            // 柱全体の積算レイヤー数を計算
+            let totalInstances = 0;
+            for (let u = 0; u < GRID_COUNT; u++) {
+                for (let v = 0; v < GRID_COUNT; v++) {
+                    totalInstances += (terrainGrid[u][v] + 1);
+                }
+            }
+
+            const instMesh = new THREE.InstancedMesh(blockGeo, blockMat, totalInstances);
+            instMesh.castShadow = true;
+            instMesh.receiveShadow = true;
+
+            let index = 0;
+            const dummy = new THREE.Object3D();
+
+            for (let u = 0; u < GRID_COUNT; u++) {
+                for (let v = 0; v < GRID_COUNT; v++) {
+                    const maxH = terrainGrid[u][v];
+                    for (let h = 0; h <= maxH; h++) {
+                        const px = (u * CELL_SIZE) - WORLD_OFFSET + CELL_SIZE / 2;
+                        const pz = (v * CELL_SIZE) - WORLD_OFFSET + CELL_SIZE / 2;
+                        const py = h * 0.8 - 0.4; // 基準高さを少し沈める
+
+                        dummy.position.set(px, py, pz);
+                        dummy.updateMatrix();
+                        instMesh.setMatrixAt(index, dummy.matrix);
+
+                        // パステルファンタジーカラー
+                        const color = new THREE.Color();
+                        if (h === 0) {
+                            color.setHex(0xbae1ff); // パステルウォーターブルー (水際)
+                        } else if (h === 1 || h === 2) {
+                            color.setHex(0xbaffc9); // 平野：パステルミントグリーン
+                        } else if (h === 3) {
+                            color.setHex(0x8ae68a); // 森林：エメラルドグリーン
+                        } else if (h === 4) {
+                            color.setHex(0xe8d7ff); // 岩山：パステルラベンダーパープル
+                        } else {
+                            color.setHex(0xffdfeb); // 山頂：ピンクホイップホワイト
+                        }
+                        instMesh.setColorAt(index, color);
+
+                        index++;
+                    }
+                }
+            }
+            scene.add(instMesh);
+        }
+
+        // 栄養素を分散配置＆黄金フードのスポーン (高低差地形のY座標を自動取得)
+        function spawnFood() {
+            if (foods.length >= CONFIG.maxFoodCount) return;
+
+            let x, z, y;
+            let foundSpot = false;
+            let attempts = 0;
+
+            while (!foundSpot && attempts < 15) {
+                // 食料密度アップ：40%の確率でクラスター（群生）湧きを行う
+                if (foods.length > 0 && Math.random() < 0.4) {
+                    const parentFood = foods[Math.floor(Math.random() * foods.length)];
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 1.0 + Math.random() * 4.5; // 親の近く
+                    x = parentFood.position.x + dist * Math.cos(angle);
+                    z = parentFood.position.z + dist * Math.sin(angle);
+                    
+                    // 境界ガード
+                    const distSq = x*x + z*z;
+                    if (distSq > (CONFIG.worldSize - 2.0) * (CONFIG.worldSize - 2.0)) {
+                        const r = Math.random() * (CONFIG.worldSize - 2.0);
+                        const theta = Math.random() * Math.PI * 2;
+                        x = r * Math.cos(theta);
+                        z = r * Math.sin(theta);
+                    }
+                } else {
+                    // 通常のランダム配置
+                    const r = Math.random() * (CONFIG.worldSize - 2.0);
+                    const theta = Math.random() * Math.PI * 2;
+                    x = r * Math.cos(theta);
+                    z = r * Math.sin(theta);
+                }
+
+                let tooClose = false;
+
+                // 群生を美しく見せるために、エサ同士が完全に重なる（距離1.0m以内）のはガードする
+                for (let i = 0; i < foods.length; i++) {
+                    const other = foods[i];
+                    const dx = x - other.position.x;
+                    const dz = z - other.position.z;
+                    const distSq = dx * dx + dz * dz;
+                    if (distSq < 1.0) { 
+                        tooClose = true;
+                        break;
+                    }
+                }
+
+                for (let i = 0; i < disasters.length; i++) {
+                    const disaster = disasters[i];
+                    const dx = x - disaster.position.x;
+                    const dz = z - disaster.position.z;
+                    const distSq = dx * dx + dz * dz;
+                    if (distSq < (disaster.radius + 1.0) * (disaster.radius + 1.0)) {
+                        tooClose = true;
+                        break;
+                    }
+                }
+
+                if (!tooClose) {
+                    foundSpot = true;
+                }
+                attempts++;
+            }
+
+            // 地形に応じたY座標の割り出し
+            y = getTerrainHeight(x, z) + 8.0;
+
+            const isGolden = Math.random() < 0.15;
+            const size = isGolden ? 0.6 : 0.35;
+            const foodGeo = new THREE.SphereGeometry(size, 12, 12);
+            
+            const foodMat = new THREE.MeshStandardMaterial({
+                color: isGolden ? PALETTE.specialFood : PALETTE.foods,
+                emissive: isGolden ? 0xaa9a00 : 0x440000,
+                roughness: 0.1,
+                metalness: 0.8
+            });
+
+            const foodMesh = new THREE.Mesh(foodGeo, foodMat);
+            foodMesh.position.set(x, y, z);
+            foodMesh.castShadow = true;
+            foodMesh.receiveShadow = true;
+            foodMesh.velY = 0.0;
+            foodMesh.userData = { isGolden: isGolden };
+
+            scene.add(foodMesh);
+            foods.push(foodMesh);
+            updateUI();
+        }
+
+        // 災害（熱波エリア）を配置する (高低差地形のY座標を自動取得)
+        function spawnDisaster() {
+            if (disasters.length >= CONFIG.maxDisasterCount) return;
+
+            const r = Math.random() * (CONFIG.worldSize - 6.0);
+            const theta = Math.random() * Math.PI * 2;
+            const x = r * Math.cos(theta);
+            const z = r * Math.sin(theta);
+
+            const radius = 4.5 + Math.random() * 2.5;
+
+            const dZone = new DisasterZone(x, z, radius);
+            disasters.push(dZone);
+            updateUI();
+        }
+
+        function updateFoods(dt) {
+            foods.forEach(food => {
+                const groundY = getTerrainHeight(food.position.x, food.position.z) + 0.35;
+                if (food.position.y > groundY) {
+                    food.velY += CONFIG.gravity * dt;
+                    food.position.y += food.velY * dt;
+                    if (food.position.y < groundY) {
+                        food.position.y = groundY;
+                        food.velY = 0;
+                    }
+                }
+                const rotateSpeed = food.userData.isGolden ? 2.5 : 1.2;
+                food.rotation.y += rotateSpeed * dt;
+                food.rotation.x += (rotateSpeed * 0.5) * dt;
+            });
+        }
+
+        function updateDisasters(dt) {
+            for (let i = disasters.length - 1; i >= 0; i--) {
+                const dz = disasters[i];
+                dz.update(dt);
+                if (!dz.active) {
+                    disasters.splice(i, 1);
+                }
+            }
+        }
+
+        // 空間分割ハッシュによる高速 O(N) 衝突解決システム
+        const SPATIAL_CELL_SIZE = 4.5; // バケット分割サイズ
+        let spatialGrid = {};
+
+        function resolveAgentCollisions() {
+            spatialGrid = {};
+            
+            // 1. 各質量関節点をバケットグリッドに収納
+            for (let i = 0; i < agents.length; i++) {
+                const agent = agents[i];
+                if (!agent.alive) continue;
+                for (let p of agent.points) {
+                    const gx = Math.floor(p.position.x / SPATIAL_CELL_SIZE);
+                    const gz = Math.floor(p.position.z / SPATIAL_CELL_SIZE);
+                    const bucketKey = `${gx}_${gz}`;
+                    if (!spatialGrid[bucketKey]) {
+                        spatialGrid[bucketKey] = [];
+                    }
+                    spatialGrid[bucketKey].push({ point: p, agent: agent });
+                }
+            }
+
+            const processedPairs = new Set();
+            const keys = Object.keys(spatialGrid);
+
+            // 2. 隣接するグリッド（9近傍）の球体のみを高能率に衝突解決
+            for (let key of keys) {
+                const [gxStr, gzStr] = key.split('_');
+                const gx = parseInt(gxStr);
+                const gz = parseInt(gzStr);
+                const currentList = spatialGrid[key];
+
+                for (let dx = -1; dx <= 1; dx++) {
+                    for (let dz = -1; dz <= 1; dz++) {
+                        const neighborKey = `${gx + dx}_${gz + dz}`;
+                        const neighborList = spatialGrid[neighborKey];
+                        if (!neighborList) continue;
+
+                        for (let itemA of currentList) {
+                            for (let itemB of neighborList) {
+                                if (itemA.agent === itemB.agent) continue; // 同一生命体の関節はぶつかり合わない
+
+                                const pA = itemA.point;
+                                const pB = itemB.point;
+
+                                if (!pA.uniqueId) pA.uniqueId = Math.random();
+                                if (!pB.uniqueId) pB.uniqueId = Math.random();
+                                const pairId = pA.uniqueId < pB.uniqueId ? `${pA.uniqueId}_${pB.uniqueId}` : `${pB.uniqueId}_${pA.uniqueId}`;
+                                if (processedPairs.has(pairId)) continue;
+                                processedPairs.add(pairId);
+
+                                const delta = new THREE.Vector3().subVectors(pB.position, pA.position);
+                                const dist = delta.length();
+                                const minDist = pA.radius + pB.radius;
+                                
+                                if (dist < minDist && dist > 0.0001) {
+                                    const overlap = minDist - dist;
+                                    const normal = delta.clone().normalize();
+                                    
+                                    const totalMass = pA.mass + pB.mass;
+                                    const factorA = pB.mass / totalMass;
+                                    const factorB = pA.mass / totalMass;
+                                    
+                                    pA.position.addScaledVector(normal, -overlap * factorA * 0.5);
+                                    pB.position.addScaledVector(normal, overlap * factorB * 0.5);
+                                    
+                                    const relativeVel = new THREE.Vector3().subVectors(pB.velocity, pA.velocity);
+                                    const velProj = relativeVel.dot(normal);
+                                    
+                                    if (velProj < 0) { 
+                                        const restitution = 0.35;
+                                        const impulse = (-(1 + restitution) * velProj) / (1 / pA.mass + 1 / pB.mass);
+                                        
+                                        pA.velocity.addScaledVector(normal, -impulse / pA.mass);
+                                        pB.velocity.addScaledVector(normal, impulse / pB.mass);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 初期の生命とフード、災害の組み立て
+        function spawnInitialAgents(count = 12) {
+            clearEnvironment();
+            selectedAgent = null;
+            
+            const inspectorPanel = document.getElementById('inspector-panel');
+            if (inspectorPanel) inspectorPanel.classList.add('hidden');
+
+            // 【★超大進化：等面積比・超分散スポーンシステム★】
+            // 平面上で均等にまんべんなく分布するように、円の半径を Math.sqrt(Math.random()) でマッピング。
+            // これにより、中心付近に集まることなく、外周の「端っこ（最大92%の境界）」まで
+            // パステル島全体に最初から綺麗な均一密度でバラバラにスポーンしてスタートできるようになります！
+            const minSpawnDistance = 15.0; 
+            const spawnedPositions = [];
+
+            for (let i = 0; i < count; i++) {
+                let x, z, y;
+                let validLocation = false;
+                let attempts = 0;
+
+                while (!validLocation && attempts < 150) {
+                    // 面積一様サンプリングを導入し、外周の端（CONFIG.worldSize * 0.92）まで最大限満遍なく分布させます
+                    const r = Math.sqrt(Math.random()) * (CONFIG.worldSize * 0.92);
+                    const theta = Math.random() * Math.PI * 2;
+                    x = r * Math.cos(theta);
+                    z = r * Math.sin(theta);
+                    
+                    let tooClose = false;
+                    for (let pos of spawnedPositions) {
+                        const dist = Math.sqrt((x - pos.x)**2 + (z - pos.z)**2);
+                        if (dist < minSpawnDistance) {
+                            tooClose = true;
+                            break;
+                        }
+                    }
+                    if (!tooClose) {
+                        validLocation = true;
+                    }
+                    attempts++;
+                }
+
+                // 決まった初期座標の地形高さを取得
+                y = getTerrainHeight(x, z) + 1.8;
+                spawnedPositions.push({ x: x, y: y, z: z });
+
+                // エージェントを個別の離れた座標にスポーン
+                const a = new Agent(null, new THREE.Vector3(x, y, z), 1, CONFIG.jointsToSpawn);
+                agents.push(a);
+                totalBirthsCount++;
+            }
+
+            maxGenerationCount = 1;
+
+            // 初期配置されるフードの量を 300個 へ増量
+            for (let i = 0; i < 300; i++) {
+                spawnFood();
+            }
+
+            spawnDisaster();
+
+            updateUI();
+            
+            const emptyWarning = document.getElementById('empty-warning');
+            if (emptyWarning) emptyWarning.classList.add('hidden');
+        }
+
+        function clearEnvironment() {
+            agents.forEach(a => {
+                a.meshes.forEach(m => m.geometry.dispose());
+                scene.remove(a.group);
+            });
+            agents = [];
+
+            foods.forEach(f => {
+                f.geometry.dispose();
+                scene.remove(f);
+            });
+            foods = [];
+
+            disasters.forEach(d => d.destroy());
+            disasters = [];
+
+            totalBirthsCount = 0;
+        }
+
+        // UIデータの更新
+        function updateUI() {
+            const agentCountEl = document.getElementById('agent-count');
+            const maxGenEl = document.getElementById('max-generation');
+            const foodCountEl = document.getElementById('food-count');
+            const totalBirthsEl = document.getElementById('total-births');
+            const disasterCountEl = document.getElementById('disaster-count');
+            const avgJointsEl = document.getElementById('avg-joints');
+            const avgResEl = document.getElementById('avg-resistance');
+            const avgDistEl = document.getElementById('avg-distance');
+            const inspectorPanelEl = document.getElementById('inspector-panel');
+
+            if (agentCountEl) agentCountEl.innerText = agents.length;
+            if (maxGenEl) maxGenEl.innerText = maxGenerationCount;
+            if (foodCountEl) foodCountEl.innerText = foods.length;
+            if (totalBirthsEl) totalBirthsEl.innerText = totalBirthsCount;
+            if (disasterCountEl) disasterCountEl.innerText = disasters.length;
+
+            if (agents.length > 0) {
+                const totalJoints = agents.reduce((sum, a) => sum + a.jointsCount, 0);
+                const avgJ = totalJoints / agents.length;
+                if (avgJointsEl) avgJointsEl.innerText = avgJ.toFixed(1) + "個";
+
+                const totalRes = agents.reduce((sum, a) => sum + a.dna.resistance, 0);
+                const avgRes = (totalRes / agents.length) * 100;
+                if (avgResEl) avgResEl.innerText = avgRes.toFixed(0) + "%";
+
+                const totalDist = agents.reduce((sum, a) => sum + a.maxDistFromSpawn, 0);
+                const avgDist = totalDist / agents.length;
+                if (avgDistEl) avgDistEl.innerText = avgDist.toFixed(1) + "m";
+            } else {
+                if (avgJointsEl) avgJointsEl.innerText = "0.0個";
+                if (avgResEl) avgResEl.innerText = "0%";
+                if (avgDistEl) avgDistEl.innerText = "0.0m";
+            }
+
+            if (selectedAgent && selectedAgent.alive) {
+                const inspectGenEl = document.getElementById('inspect-gen');
+                const inspectEnergyEl = document.getElementById('inspect-energy');
+                const inspectResistEl = document.getElementById('inspect-resistance');
+                const inspectDistEl = document.getElementById('inspect-distance');
+                const inspectTraitsEl = document.getElementById('inspect-traits');
+                const inspectReproEl = document.getElementById('inspect-repro');
+                const inspectSizeEl = document.getElementById('inspect-size');
+                const inspectEatEffEl = document.getElementById('inspect-eat-eff');
+
+                if (inspectGenEl) inspectGenEl.innerText = `${selectedAgent.generation}世代 / ${selectedAgent.jointsCount}関節`;
+                
+                if (inspectSizeEl) inspectSizeEl.innerText = `${selectedAgent.dna.sizeScale.toFixed(2)}倍`;
+                if (inspectEnergyEl) inspectEnergyEl.innerText = `${Math.ceil(selectedAgent.energy)} / ${Math.ceil(selectedAgent.dna.maxEnergy)} HP`;
+                if (inspectEatEffEl) inspectEatEffEl.innerText = `${(selectedAgent.dna.predationEfficiency * 100).toFixed(0)}%`;
+                if (inspectReproEl) inspectReproEl.innerText = `${Math.ceil(selectedAgent.dna.reproduceThreshold)} HP`;
+                
+                const resPercent = (selectedAgent.dna.resistance * 100).toFixed(0);
+                if (inspectResistEl) inspectResistEl.innerText = `${resPercent}% 防熱装甲`;
+
+                const currentDist = selectedAgent.points[0].position.distanceTo(selectedAgent.spawnPosition).toFixed(1);
+                const maxDist = selectedAgent.maxDistFromSpawn.toFixed(1);
+                if (inspectDistEl) inspectDistEl.innerText = `現在:${currentDist}m / 記録:${maxDist}m`;
+
+                const tempo = selectedAgent.dna.tempoScale.toFixed(1);
+                const urge = selectedAgent.dna.exploreUrge.toFixed(1);
+                if (inspectTraitsEl) inspectTraitsEl.innerText = `速度:${tempo}x / 探索衝動:${urge}`;
+
+                const inspectBoneLengthEl = document.getElementById('inspect-bonelength');
+                const avgBoneLength = selectedAgent.dna.boneLengths.reduce((a, b) => a + b, 0) / selectedAgent.legsCount;
+                if (inspectBoneLengthEl) inspectBoneLengthEl.innerText = `約 ${avgBoneLength.toFixed(1)}m`;
+            } else {
+                if (inspectorPanelEl) inspectorPanelEl.classList.add('hidden');
+            }
+
+            const emptyWarningEl = document.getElementById('empty-warning');
+            if (emptyWarningEl) {
+                if (agents.length === 0) {
+                    emptyWarningEl.classList.remove('hidden');
+                } else {
+                    emptyWarningEl.classList.add('hidden');
+                }
+            }
+        }
+
+        // --- ドラッグとクリックを完璧に分離する判定システム ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        
+        let pointerDownX = 0;
+        let pointerDownY = 0;
+
+        function onPointerDown(event) {
+            pointerDownX = event.clientX;
+            pointerDownY = event.clientY;
+        }
+
+        // 生命体クリック選択の判定
+        function onPointerUp(event) {
+            const movementX = Math.abs(event.clientX - pointerDownX);
+            const movementY = Math.abs(event.clientY - pointerDownY);
+            
+            if (movementX > 8 || movementY > 8) {
+                return;
+            }
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            const clickCandidates = [];
+            agents.forEach(a => {
+                a.meshes.forEach(m => clickCandidates.push(m));
+                a.boneCylinders.forEach(b => clickCandidates.push(b));
+            });
+
+            const intersects = raycaster.intersectObjects(clickCandidates);
+
+            if (intersects.length > 0) {
+                const clickedMesh = intersects[0].object;
+                const agent = clickedMesh.userData.agentRef;
+                if (agent) {
+                    selectedAgent = agent;
+                    const inspectorPanel = document.getElementById('inspector-panel');
+                    if (inspectorPanel) inspectorPanel.classList.remove('hidden');
+                    updateUI();
+                    controls.target.copy(agent.points[0].position);
+                }
+            }
+        }
+
+        // 定期タイマー
+        let foodSpawnTimer = 0;
+        let disasterSpawnTimer = 0;
+
+        // メイン・アニメーションループ
+        function animate(time) {
+            requestAnimationFrame(animate);
+
+            if (lastTime === 0) lastTime = time;
+            let dt = (time - lastTime) / 1000;
+            lastTime = time;
+
+            if (dt > 0.1) dt = 0.1;
+
+            // 選択中のエージェントへの自動追跡システム
+            if (selectedAgent && selectedAgent.alive) {
+                const targetPos = selectedAgent.points[0].position;
+                controls.target.lerp(targetPos, 0.08); 
+                
+                // ロックオン追跡ラインのリアルタイム座標更新
+                if (selectedAgent.targetedFood && scene.children.includes(selectedAgent.targetedFood)) {
+                    lockOnLine.visible = true;
+                    // 頭関節から、狙っているエサの座標にラインを結ぶ
+                    const points = [
+                        selectedAgent.points[0].position.clone(),
+                        selectedAgent.targetedFood.position.clone()
+                    ];
+                    lockOnLine.geometry.setFromPoints(points);
+                } else {
+                    lockOnLine.visible = false;
+                }
+            } else {
+                lockOnLine.visible = false;
+            }
+
+            controls.update();
+
+            // サブステップ方式による、物理・AIの安全な高速化処理
+            const currentSpeed = CONFIG.simSpeed || 1;
+            const stepDt = dt / currentSpeed;
+
+            for (let step = 0; step < currentSpeed; step++) {
+                // 生きている生命体が多い時は、エサの消費スピードに負けないように自動でエサの追加ペースを加速します。
+                const stabilizerFactor = Math.min(3.0, 1.0 + (agents.length * 0.05));
+                const activeInterval = CONFIG.foodSpawnInterval / stabilizerFactor;
+                
+                foodSpawnTimer += stepDt;
+                if (foodSpawnTimer > activeInterval) {
+                    spawnFood();
+                    foodSpawnTimer = 0;
+                }
+
+                // 14秒ごとに災害ゾーンを追加
+                disasterSpawnTimer += stepDt;
+                if (disasterSpawnTimer > 14.0) {
+                    spawnDisaster();
+                    disasterSpawnTimer = 0;
+                }
+
+                updateFoods(stepDt);
+                updateDisasters(stepDt);
+
+                for (let i = agents.length - 1; i >= 0; i--) {
+                    const a = agents[i];
+                    a.update(stepDt);
+                }
+
+                // 各サブステップ内で、生命体同士の物理衝突解決関数を呼び出す
+                resolveAgentCollisions();
+            }
+
+            // 毎フレーム変化する数値（エネルギーや現在距離）のみリアルタイム更新
+            if (selectedAgent && selectedAgent.alive) {
+                const inspectEnergyEl = document.getElementById('inspect-energy');
+                const inspectDistEl = document.getElementById('inspect-distance');
+                if (inspectEnergyEl) inspectEnergyEl.innerText = `${Math.ceil(selectedAgent.energy)} / ${Math.ceil(selectedAgent.dna.maxEnergy)} HP`;
+                
+                const currentDist = selectedAgent.points[0].position.distanceTo(selectedAgent.spawnPosition).toFixed(1);
+                const maxDist = selectedAgent.maxDistFromSpawn.toFixed(1);
+                if (inspectDistEl) inspectDistEl.innerText = `現在:${currentDist}m / 記録:${maxDist}m`;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // スライダー・スワイプ入力値の連携イベント登録
+        function setupUIListeners() {
+            const slideMutation = document.getElementById('slide-mutation');
+            const labelMutation = document.getElementById('label-mutation');
+            if (slideMutation && labelMutation) {
+                slideMutation.addEventListener('input', (e) => {
+                    const val = parseInt(e.target.value);
+                    CONFIG.mutationRate = val / 100;
+                    labelMutation.innerText = `${val}%`;
+                });
+            }
+
+            const slideJoints = document.getElementById('slide-joints');
+            const labelJoints = document.getElementById('label-joints');
+            if (slideJoints && labelJoints) {
+                slideJoints.addEventListener('input', (e) => {
+                    const val = parseInt(e.target.value);
+                    CONFIG.jointsToSpawn = val;
+                    labelJoints.innerText = `${val}個 (${val - 1}本足)`;
+                });
+            }
+
+            // 最大フード数の変更
+            const slideMaxFood = document.getElementById('slide-max-food');
+            const labelMaxFood = document.getElementById('label-max-food');
+            if (slideMaxFood && labelMaxFood) {
+                slideMaxFood.addEventListener('input', (e) => {
+                    const val = parseInt(e.target.value);
+                    CONFIG.maxFoodCount = val;
+                    labelMaxFood.innerText = `${val}個`;
+                });
+            }
+
+            // フード自動補充スピードの変更
+            const slideFoodInterval = document.getElementById('slide-food-interval');
+            const labelFoodInterval = document.getElementById('label-food-interval');
+            if (slideFoodInterval && labelFoodInterval) {
+                slideFoodInterval.addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value) / 10;
+                    CONFIG.foodSpawnInterval = val;
+                    labelFoodInterval.innerText = `${val.toFixed(1)}秒`;
+                });
+            }
+
+            // 緊急フードシャワーボタン
+            const btnFoodShower = document.getElementById('btn-food-shower');
+            if (btnFoodShower) {
+                btnFoodShower.addEventListener('click', () => {
+                    // 一気に30個のごちそうを降らせる
+                    for (let i = 0; i < 30; i++) {
+                        spawnFood();
+                    }
+                    updateUI();
+                });
+            }
+
+            const btnCloseInspector = document.getElementById('btn-close-inspector');
+            if (btnCloseInspector) {
+                btnCloseInspector.addEventListener('click', () => {
+                    selectedAgent = null;
+                    const inspectorPanel = document.getElementById('inspector-panel');
+                    if (inspectorPanel) inspectorPanel.classList.add('hidden');
+                });
+            }
+
+            // 倍速スピード制御ボタン of イベントリスナー
+            const speedBtn1 = document.getElementById('btn-speed-1');
+            const speedBtn2 = document.getElementById('btn-speed-2');
+            const speedBtn4 = document.getElementById('btn-speed-4');
+            const labelSpeed = document.getElementById('label-speed');
+
+            function updateSpeedButtons(activeSpeed) {
+                CONFIG.simSpeed = activeSpeed;
+                
+                // ボタンのスタイル切り替え
+                const btns = [
+                    { speed: 1, el: speedBtn1 },
+                    { speed: 2, el: speedBtn2 },
+                    { speed: 4, el: speedBtn4 }
+                ];
+
+                btns.forEach(btn => {
+                    if (btn.el) {
+                        if (btn.speed === activeSpeed) {
+                            btn.el.className = "bg-indigo-600 text-white text-xs font-bold py-1 px-2 rounded-lg shadow-sm transition-all focus:outline-none";
+                        } else {
+                            btn.el.className = "bg-stone-200 text-stone-700 hover:bg-stone-300 text-xs font-bold py-1 px-2 rounded-lg transition-all focus:outline-none";
+                        }
+                    }
+                });
+
+                if (labelSpeed) {
+                    if (activeSpeed === 1) labelSpeed.innerText = "1x (通常速度)";
+                    if (activeSpeed === 2) labelSpeed.innerText = "2x (倍速シミュレート)";
+                    if (activeSpeed === 4) labelSpeed.innerText = "4x (超高速ジェネレート)";
+                }
+            }
+
+            if (speedBtn1) speedBtn1.addEventListener('click', () => updateSpeedButtons(1));
+            if (speedBtn2) speedBtn2.addEventListener('click', () => updateSpeedButtons(2));
+            if (speedBtn4) speedBtn4.addEventListener('click', () => updateSpeedButtons(4));
+
+            // UIの非表示・表示切り替えイベント
+            const controlPanel = document.getElementById('control-panel');
+            const btnHidePanel = document.getElementById('btn-hide-panel');
+            const btnShowPanel = document.getElementById('btn-show-panel');
+
+            if (btnHidePanel && controlPanel && btnShowPanel) {
+                btnHidePanel.addEventListener('click', () => {
+                    controlPanel.style.transform = "translateX(-380px)"; 
+                    controlPanel.style.opacity = "0";
+                    setTimeout(() => {
+                        controlPanel.classList.add('hidden');
+                        btnShowPanel.classList.remove('hidden'); 
+                    }, 300);
+                });
+
+                btnShowPanel.addEventListener('click', () => {
+                    btnShowPanel.classList.add('hidden'); 
+                    controlPanel.classList.remove('hidden');
+                    setTimeout(() => {
+                        controlPanel.style.transform = "translateX(0)";
+                        controlPanel.style.opacity = "1";
+                    }, 50);
+                });
+            }
+
+
+            const btnSpawn = document.getElementById('btn-spawn');
+            if (btnSpawn) {
+                btnSpawn.addEventListener('click', () => {
+                    const a = new Agent(null, null, 1, CONFIG.jointsToSpawn);
+                    agents.push(a);
+                    totalBirthsCount++;
+                    updateUI();
+                });
+            }
+
+            const btnDisaster = document.getElementById('btn-disaster');
+            if (btnDisaster) {
+                btnDisaster.addEventListener('click', () => {
+                    spawnDisaster();
+                });
+            }
+
+            const btnReset = document.getElementById('btn-reset');
+            if (btnReset) {
+                btnReset.addEventListener('click', () => {
+                    spawnInitialAgents(12);
+                });
+            }
+        }
+
+        // ページの準備が終わった瞬間にシステムを起動
+        window.onload = function() {
+            init3D();
+            spawnInitialAgents(12);
+            setupUIListeners();
+            requestAnimationFrame(animate);
+        };
+    </script>
+</body>
+</html>
