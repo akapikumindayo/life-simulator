@@ -1,6 +1,9 @@
 # life-simulator
 生命の進化を見れます
 
+プレイはこちらから
+(https://akapikumindayo.github.io/life-simulator/)
+
 遺伝要素:
 多きさ、
 色、
